@@ -638,7 +638,7 @@ func (a *apic) ApplyApicWhitelists(decisions []*models.Decision) []*models.Decis
 				break
 			}
 			if cidr.Contains(ipval) {
-				log.Infof("%s from %s is whitelisted by %s", *decision.Value, *decision.Scenario, cidr.String())
+				log.Infof("capi whitelist: %s from %s is whitelisted by %s", *decision.Value, *decision.Scenario, cidr.String())
 				skip = true
 			}
 		}
@@ -647,7 +647,7 @@ func (a *apic) ApplyApicWhitelists(decisions []*models.Decision) []*models.Decis
 				break
 			}
 			if ip != nil && ip.Equal(ipval) {
-				log.Infof("%s from %s is whitelisted by %s", *decision.Value, *decision.Scenario, ipval)
+				log.Infof("capi whitelist: %s from %s is whitelisted", *decision.Value, *decision.Scenario)
 				skip = true
 			}
 		}

@@ -86,7 +86,3 @@ func Loadplugin(path string) (EnricherCtx, error) {
 
 	return enricherCtx, nil
 }
-
-func (en *Enricher) HasCache() bool {
-	return en.Cache != nil
-}

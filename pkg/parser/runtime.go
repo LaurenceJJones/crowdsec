@@ -154,7 +154,7 @@ func (n *Node) ProcessStatics(statics []ExtraField, event *types.Event) error {
 				clog.Tracef("Found method '%s'", static.Method)
 				var ret map[string]string
 				var hitCache bool
-				if enricherPlugin.HasCache() {
+				if enricherPlugin.Cache != nil {
 					if cache, err := enricherPlugin.Cache.Get(value); err == nil {
 						clog.Debugf("Cache hit for '%s'", value)
 						hitCache = true
@@ -178,7 +178,7 @@ func (n *Node) ProcessStatics(statics []ExtraField, event *types.Event) error {
 					clog.Debugf("\t.Enriched[%s] = '%s'\n", k, v)
 					event.Enriched[k] = v
 				}
-				if enricherPlugin.HasCache() && !hitCache && len(ret) > 0 {
+				if enricherPlugin.Cache != nil && !hitCache && len(ret) > 0 {
 					clog.Debugf("Setting enricher cache for %s with method %s", value, static.Method)
 					enricherPlugin.Cache.Set(value, ret)
 				}

@@ -19,11 +19,12 @@ type EnricherCtx struct {
 }
 
 type Enricher struct {
-	Name       string
-	InitFunc   InitFunc
-	EnrichFunc EnrichFunc
-	Ctx        interface{}
-	Cache      gcache.Cache
+	Name         string
+	InitFunc     InitFunc
+	EnrichFunc   EnrichFunc
+	Ctx          interface{}
+	Cache        gcache.Cache
+	ExcludeCache bool
 }
 
 /* mimic plugin loading */
@@ -55,14 +56,16 @@ func Loadplugin(path string) (EnricherCtx, error) {
 			EnrichFunc: reverse_dns,
 		},
 		{
-			Name:       "ParseDate",
-			InitFunc:   parseDateInit,
-			EnrichFunc: ParseDate,
+			Name:         "ParseDate",
+			InitFunc:     parseDateInit,
+			EnrichFunc:   ParseDate,
+			ExcludeCache: true,
 		},
 		{
-			Name:       "UnmarshalJSON",
-			InitFunc:   unmarshalInit,
-			EnrichFunc: unmarshalJSON,
+			Name:         "UnmarshalJSON",
+			InitFunc:     unmarshalInit,
+			EnrichFunc:   unmarshalJSON,
+			ExcludeCache: true,
 		},
 	}
 
@@ -73,7 +76,7 @@ func Loadplugin(path string) (EnricherCtx, error) {
 			log.Errorf("unable to register plugin '%s': %v", enricher.Name, err)
 			continue
 		}
-		if fflag.EnricherCache.IsEnabled() {
+		if fflag.EnricherCache.IsEnabled() && !enricher.ExcludeCache {
 			enricher.Cache = gcache.New(50).LRU().Expiration(time.Minute).Build()
 		}
 		enricher.Ctx = pluginCtx

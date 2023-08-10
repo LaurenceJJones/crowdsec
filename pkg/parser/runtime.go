@@ -178,7 +178,7 @@ func (n *Node) ProcessStatics(statics []ExtraField, event *types.Event) error {
 					clog.Debugf("\t.Enriched[%s] = '%s'\n", k, v)
 					event.Enriched[k] = v
 				}
-				if enricherPlugin.HasCache() && !hitCache {
+				if enricherPlugin.HasCache() && !hitCache && len(ret) > 0 {
 					clog.Debugf("Setting enricher cache for %s with method %s", value, static.Method)
 					enricherPlugin.Cache.Set(value, ret)
 				}

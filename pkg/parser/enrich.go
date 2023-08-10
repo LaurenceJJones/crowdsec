@@ -1,8 +1,12 @@
 package parser
 
 import (
+	"time"
+
+	"github.com/bluele/gcache"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/crowdsecurity/crowdsec/pkg/fflag"
 	"github.com/crowdsecurity/crowdsec/pkg/types"
 )
 
@@ -19,6 +23,7 @@ type Enricher struct {
 	InitFunc   InitFunc
 	EnrichFunc EnrichFunc
 	Ctx        interface{}
+	Cache      gcache.Cache
 }
 
 /* mimic plugin loading */
@@ -68,10 +73,17 @@ func Loadplugin(path string) (EnricherCtx, error) {
 			log.Errorf("unable to register plugin '%s': %v", enricher.Name, err)
 			continue
 		}
+		if fflag.EnricherCache.IsEnabled() {
+			enricher.Cache = gcache.New(50).LRU().Expiration(time.Minute).Build()
+		}
 		enricher.Ctx = pluginCtx
 		log.Infof("Successfully registered enricher '%s'", enricher.Name)
 		enricherCtx.Registered[enricher.Name] = enricher
 	}
 
 	return enricherCtx, nil
+}
+
+func (en *Enricher) HasCache() bool {
+	return en.Cache != nil
 }

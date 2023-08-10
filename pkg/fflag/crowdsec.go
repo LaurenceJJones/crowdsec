@@ -8,6 +8,7 @@ var ChunkedDecisionsStream = &Feature{Name: "chunked_decisions_stream", Descript
 var PapiClient = &Feature{Name: "papi_client", Description: "Enable Polling API client"}
 var Re2GrokSupport = &Feature{Name: "re2_grok_support", Description: "Enable RE2 support for GROK patterns"}
 var Re2RegexpInfileSupport = &Feature{Name: "re2_regexp_in_file_support", Description: "Enable RE2 support for RegexpInFile expr helper"}
+var EnricherCache = &Feature{Name: "enricher_cache", Description: "Enable enricher cache"}
 
 func RegisterAllFeatures() error {
 	err := Crowdsec.RegisterFeature(CscliSetup)
@@ -34,6 +35,9 @@ func RegisterAllFeatures() error {
 	if err != nil {
 		return err
 	}
-
+	err = Crowdsec.RegisterFeature(EnricherCache)
+	if err != nil {
+		return err
+	}
 	return nil
 }

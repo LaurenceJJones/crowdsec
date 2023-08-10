@@ -152,9 +152,19 @@ func (n *Node) ProcessStatics(statics []ExtraField, event *types.Event) error {
 			/*still way too hackish, but : inject all the results in enriched, and */
 			if enricherPlugin, ok := n.EnrichFunctions.Registered[static.Method]; ok {
 				clog.Tracef("Found method '%s'", static.Method)
-				ret, err := enricherPlugin.EnrichFunc(value, event, enricherPlugin.Ctx, n.Logger.WithField("method", static.Method))
-				if err != nil {
-					clog.Errorf("method '%s' returned an error : %v", static.Method, err)
+				var ret map[string]string
+				if enricherPlugin.HasCache() {
+					if cache, err := enricherPlugin.Cache.Get(value); err == nil {
+						clog.Debugf("Cache hit for '%s'", value)
+						ret = cache.(map[string]string)
+					}
+				}
+				if ret == nil {
+					var err error
+					ret, err = enricherPlugin.EnrichFunc(value, event, enricherPlugin.Ctx, n.Logger.WithField("method", static.Method))
+					if err != nil {
+						clog.Errorf("method '%s' returned an error : %v", static.Method, err)
+					}
 				}
 				processed = true
 				clog.Debugf("+ Method %s('%s') returned %d entries to merge in .Enriched\n", static.Method, value, len(ret))
@@ -165,6 +175,10 @@ func (n *Node) ProcessStatics(statics []ExtraField, event *types.Event) error {
 				for k, v := range ret {
 					clog.Debugf("\t.Enriched[%s] = '%s'\n", k, v)
 					event.Enriched[k] = v
+				}
+				if enricherPlugin.HasCache() {
+					clog.Debugf("Setting enricher cache for %s with method %s", value, static.Method)
+					enricherPlugin.Cache.Set(value, ret)
 				}
 			} else {
 				clog.Debugf("method '%s' doesn't exist or plugin not initialized", static.Method)

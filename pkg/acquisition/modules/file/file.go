@@ -149,6 +149,14 @@ func (f *FileSource) Configure(yamlConfig []byte, logger *log.Entry) error {
 			if excluded {
 				continue
 			}
+			fi, err := os.Lstat(file)
+			if err != nil {
+				return fmt.Errorf("could not stat file %s : %w", file, err)
+			}
+			if fi.Mode()&os.ModeSymlink != 0 {
+				f.logger.Warnf("%s is a symlink, ignoring it", file)
+				continue
+			}
 			if files[0] != pattern && f.config.Mode == configuration.TAIL_MODE { //we have a glob pattern
 				directory := filepath.Dir(file)
 				f.logger.Debugf("Will add watch to directory: %s", directory)

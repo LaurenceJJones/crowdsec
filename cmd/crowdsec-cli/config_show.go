@@ -7,6 +7,7 @@ import (
 	"text/template"
 
 	"github.com/antonmedv/expr"
+	"github.com/sanity-io/litter"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
@@ -35,13 +36,13 @@ func showConfigKey(key string) error {
 
 	switch csConfig.Cscli.Output {
 	case "human", "raw":
+		// Don't use litter for strings, it adds quotes
+		// that we didn't have before
 		switch output.(type) {
 		case string:
-			fmt.Printf("%s\n", output)
-		case int:
-			fmt.Printf("%d\n", output)
+			fmt.Println(output)
 		default:
-			fmt.Printf("%v\n", output)
+			litter.Dump(output)
 		}
 	case "json":
 		data, err := json.MarshalIndent(output, "", "  ")
@@ -57,7 +58,6 @@ func showConfigKey(key string) error {
 var configShowTemplate = `Global:
 
 {{- if .ConfigPaths }}
-   - Configuration Folder   : {{.ConfigPaths.ConfigDir}}
    - Configuration Folder   : {{.ConfigPaths.ConfigDir}}
    - Data Folder            : {{.ConfigPaths.DataDir}}
    - Hub Folder             : {{.ConfigPaths.HubDir}}
@@ -83,7 +83,6 @@ Crowdsec{{if and .Crowdsec.Enable (not (ValueBool .Crowdsec.Enable))}} (disabled
 cscli:
   - Output                  : {{.Cscli.Output}}
   - Hub Branch              : {{.Cscli.HubBranch}}
-  - Hub Folder              : {{.Cscli.HubDir}}
 {{- end }}
 
 {{- if .API }}
@@ -163,6 +162,12 @@ Central API:
       - Port                : {{.DbConfig.Port}}
       - User                : {{.DbConfig.User}}
       - DB Name             : {{.DbConfig.DbName}}
+{{- end }}
+{{- if .DbConfig.MaxOpenConns }}
+      - Max Open Conns      : {{.DbConfig.MaxOpenConns}}
+{{- end }}
+{{- if ne .DbConfig.DecisionBulkSize 0 }}
+      - Decision Bulk Size  : {{.DbConfig.DecisionBulkSize}}
 {{- end }}
 {{- if .DbConfig.Flush }}
 {{- if .DbConfig.Flush.MaxAge }}

@@ -77,17 +77,17 @@ smb
 "
 
 
-HTTP_PLUGIN_BINARY="./plugins/notifications/http/notification-http"
-SLACK_PLUGIN_BINARY="./plugins/notifications/slack/notification-slack"
-SPLUNK_PLUGIN_BINARY="./plugins/notifications/splunk/notification-splunk"
-EMAIL_PLUGIN_BINARY="./plugins/notifications/email/notification-email"
-SENTINEL_PLUGIN_BINARY="./plugins/notifications/sentinel/notification-sentinel"
+HTTP_PLUGIN_BINARY="./cmd/notification-http/notification-http"
+SLACK_PLUGIN_BINARY="./cmd/notification-slack/notification-slack"
+SPLUNK_PLUGIN_BINARY="./cmd/notification-splunk/notification-splunk"
+EMAIL_PLUGIN_BINARY="./cmd/notification-email/notification-email"
+SENTINEL_PLUGIN_BINARY="./cmd/notification-sentinel/notification-sentinel"
 
-HTTP_PLUGIN_CONFIG="./plugins/notifications/http/http.yaml"
-SLACK_PLUGIN_CONFIG="./plugins/notifications/slack/slack.yaml"
-SPLUNK_PLUGIN_CONFIG="./plugins/notifications/splunk/splunk.yaml"
-EMAIL_PLUGIN_CONFIG="./plugins/notifications/email/email.yaml"
-SENTINEL_PLUGIN_CONFIG="./plugins/notifications/sentinel/sentinel.yaml"
+HTTP_PLUGIN_CONFIG="./cmd/notification-http/http.yaml"
+SLACK_PLUGIN_CONFIG="./cmd/notification-slack/slack.yaml"
+SPLUNK_PLUGIN_CONFIG="./cmd/notification-splunk/splunk.yaml"
+EMAIL_PLUGIN_CONFIG="./cmd/notification-email/email.yaml"
+SENTINEL_PLUGIN_CONFIG="./cmd/notification-sentinel/sentinel.yaml"
 
 
 BACKUP_DIR=$(mktemp -d)
@@ -95,33 +95,33 @@ rm -rf -- "$BACKUP_DIR"
 
 log_info() {
     msg=$1
-    date=$(date +%x:%X)
+    date=$(date "+%Y-%m-%d %H:%M:%S")
     echo -e "${BLUE}INFO${NC}[${date}] crowdsec_wizard: ${msg}"
 }
 
 log_fatal() {
     msg=$1
-    date=$(date +%x:%X)
+    date=$(date "+%Y-%m-%d %H:%M:%S")
     echo -e "${RED}FATA${NC}[${date}] crowdsec_wizard: ${msg}" 1>&2 
     exit 1
 }
 
 log_warn() {
     msg=$1
-    date=$(date +%x:%X)
+    date=$(date "+%Y-%m-%d %H:%M:%S")
     echo -e "${ORANGE}WARN${NC}[${date}] crowdsec_wizard: ${msg}"
 }
 
 log_err() {
     msg=$1
-    date=$(date +%x:%X)
+    date=$(date "+%Y-%m-%d %H:%M:%S")
     echo -e "${RED}ERR${NC}[${date}] crowdsec_wizard: ${msg}" 1>&2
 }
 
 log_dbg() {
     if [[ ${DEBUG_MODE} == "true" ]]; then
         msg=$1
-        date=$(date +%x:%X)
+        date=$(date "+%Y-%m-%d %H:%M:%S")
         echo -e "[${date}][${YELLOW}DBG${NC}] crowdsec_wizard: ${msg}" 1>&2
     fi
 }
@@ -414,6 +414,8 @@ install_crowdsec() {
     mkdir -p "${CROWDSEC_CONFIG_PATH}/postoverflows" || exit
     mkdir -p "${CROWDSEC_CONFIG_PATH}/collections" || exit
     mkdir -p "${CROWDSEC_CONFIG_PATH}/patterns" || exit
+    mkdir -p "${CROWDSEC_CONFIG_PATH}/appsec-configs" || exit
+    mkdir -p "${CROWDSEC_CONFIG_PATH}/appsec-rules" || exit
     mkdir -p "${CROWDSEC_CONSOLE_DIR}" || exit
 
     #tmp

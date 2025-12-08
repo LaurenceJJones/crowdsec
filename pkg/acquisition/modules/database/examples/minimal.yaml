@@ -9,3 +9,4 @@ log_column: message
 labels:
   type: database-logs
 
+

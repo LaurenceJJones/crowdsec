@@ -19,4 +19,3 @@ var (
 func init() {
 	registerDataSource("database", func() DataSource { return &databaseacquisition.DatabaseSource{} })
 }
-

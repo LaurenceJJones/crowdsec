@@ -2,14 +2,18 @@ package databaseacquisition
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	yaml "github.com/goccy/go-yaml"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -20,25 +24,32 @@ import (
 	"github.com/crowdsecurity/crowdsec/pkg/pipeline"
 
 	// Database drivers - imported for side effects
-	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
-	defaultPollInterval = 10 * time.Second
+	defaultPollInterval  = 10 * time.Second
 	timestampPlaceholder = "{{.timestamp}}"
 )
 
+type TLSConfig struct {
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+	ClientCert         string `yaml:"client_cert"`
+	ClientKey          string `yaml:"client_key"`
+	CaCert             string `yaml:"ca_cert"`
+}
+
 type DatabaseConfiguration struct {
-	DSN                               string            `yaml:"dsn"`                 // Database connection string
-	Driver                            string            `yaml:"driver"`              // Database driver (postgres, mysql, sqlite3, etc.)
-	Query                             string            `yaml:"query"`               // SQL query to execute
-	PollInterval                      time.Duration     `yaml:"poll_interval"`       // How often to poll for new data (tail mode)
-	LogColumn                         string            `yaml:"log_column"`          // Column containing the log message
-	TimestampColumn                   string            `yaml:"timestamp_column"`    // Column containing timestamp for incremental reads
-	MaxRows                           int               `yaml:"max_rows"`            // Maximum rows per query (default: 1000)
-	AdditionalColumns                 []string          `yaml:"additional_columns"`  // Additional columns to add as labels
+	DSN                               string        `yaml:"dsn"`                // Database connection string
+	Driver                            string        `yaml:"driver"`             // Database driver (postgres, mysql, sqlite3, etc.)
+	Query                             string        `yaml:"query"`              // SQL query to execute
+	PollInterval                      time.Duration `yaml:"poll_interval"`      // How often to poll for new data (tail mode)
+	LogColumn                         string        `yaml:"log_column"`         // Column containing the log message
+	TimestampColumn                   string        `yaml:"timestamp_column"`   // Column containing timestamp for incremental reads
+	MaxRows                           int           `yaml:"max_rows"`           // Maximum rows per query (default: 1000)
+	AdditionalColumns                 []string      `yaml:"additional_columns"` // Additional columns to add as labels
+	TLS                               *TLSConfig    `yaml:"tls"`                // TLS configuration
 	configuration.DataSourceCommonCfg `yaml:",inline"`
 }
 
@@ -100,10 +111,137 @@ func (d *DatabaseSource) UnmarshalConfig(yamlConfig []byte) error {
 
 	// Validate that if timestamp_column is set, the query contains the placeholder
 	if d.config.TimestampColumn != "" && !strings.Contains(d.config.Query, timestampPlaceholder) {
-		return fmt.Errorf("query must contain %s when timestamp_column is set", timestampPlaceholder)
+		return fmt.Errorf("query must contain %s when timestamp_column is set. Example: WHERE created_at > '%s'", timestampPlaceholder, timestampPlaceholder)
+	}
+
+	// Helpful warning: if in tail mode and no timestamp tracking, warn about duplicate reads
+	if d.config.Mode == configuration.TAIL_MODE && d.config.TimestampColumn == "" {
+		if d.logger != nil {
+			d.logger.Warnf("Running in tail mode without timestamp_column - will re-read all rows on each poll. Consider setting timestamp_column for incremental reads")
+		}
+	}
+
+	// Helpful hint: if timestamp_column is set but query looks like it might be missing ORDER BY
+	if d.config.TimestampColumn != "" && !strings.Contains(strings.ToUpper(d.config.Query), "ORDER BY") {
+		if d.logger != nil {
+			d.logger.Warnf("Query has timestamp_column but no ORDER BY clause - consider adding ORDER BY %s for consistent results", d.config.TimestampColumn)
+		}
 	}
 
 	return nil
+}
+
+func (d *DatabaseConfiguration) NewTLSConfig() (*tls.Config, error) {
+	tlsConfig := tls.Config{
+		InsecureSkipVerify: d.TLS.InsecureSkipVerify,
+	}
+
+	// Load client certificate if provided
+	if d.TLS.ClientCert != "" && d.TLS.ClientKey != "" {
+		cert, err := tls.LoadX509KeyPair(d.TLS.ClientCert, d.TLS.ClientKey)
+		if err != nil {
+			return &tlsConfig, fmt.Errorf("failed to load client cert/key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	// Load CA certificate if provided
+	if d.TLS.CaCert != "" {
+		caCert, err := os.ReadFile(d.TLS.CaCert)
+		if err != nil {
+			return &tlsConfig, fmt.Errorf("failed to read ca cert: %w", err)
+		}
+
+		caCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			return &tlsConfig, fmt.Errorf("unable to load system CA certificates: %w", err)
+		}
+
+		if caCertPool == nil {
+			caCertPool = x509.NewCertPool()
+		}
+
+		caCertPool.AppendCertsFromPEM(caCert)
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	return &tlsConfig, nil
+}
+
+func (d *DatabaseSource) configureTLS(dsn string) (string, error) {
+	tlsConfig, err := d.config.NewTLSConfig()
+	if err != nil {
+		return dsn, fmt.Errorf("failed to create TLS config: %w", err)
+	}
+
+	switch d.config.Driver {
+	case "mysql":
+		// Register TLS config for MySQL
+		tlsConfigName := fmt.Sprintf("crowdsec-db-%s", d.config.UniqueId)
+		if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
+			return dsn, fmt.Errorf("failed to register MySQL TLS config: %w", err)
+		}
+
+		// Add tls parameter to DSN
+		if strings.Contains(dsn, "?") {
+			dsn = fmt.Sprintf("%s&tls=%s", dsn, tlsConfigName)
+		} else {
+			dsn = fmt.Sprintf("%s?tls=%s", dsn, tlsConfigName)
+		}
+		d.logger.Debugf("Configured MySQL TLS with config name: %s", tlsConfigName)
+
+	case "postgres":
+		// PostgreSQL uses connection parameters
+		// Build sslmode parameter
+		sslMode := "require"
+		if d.config.TLS.InsecureSkipVerify {
+			sslMode = "disable"
+		} else if d.config.TLS.CaCert != "" {
+			sslMode = "verify-full"
+		}
+
+		// Add SSL parameters to DSN
+		if strings.Contains(dsn, "sslmode=") {
+			d.logger.Warnf("DSN already contains sslmode parameter. TLS configuration will override it with sslmode=%s. Consider removing sslmode from DSN.", sslMode)
+			// Remove existing sslmode to avoid conflicts
+			dsn = removeDSNParam(dsn, "sslmode")
+		}
+		dsn = fmt.Sprintf("%s sslmode=%s", dsn, sslMode)
+
+		if d.config.TLS.CaCert != "" {
+			dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, d.config.TLS.CaCert)
+		}
+
+		if d.config.TLS.ClientCert != "" {
+			dsn = fmt.Sprintf("%s sslcert=%s", dsn, d.config.TLS.ClientCert)
+		}
+
+		if d.config.TLS.ClientKey != "" {
+			dsn = fmt.Sprintf("%s sslkey=%s", dsn, d.config.TLS.ClientKey)
+		}
+
+		d.logger.Debugf("Configured PostgreSQL TLS with sslmode: %s", sslMode)
+
+	case "sqlite3":
+		d.logger.Warnf("TLS configuration is not applicable for SQLite (local file database)")
+
+	default:
+		return dsn, fmt.Errorf("TLS configuration not supported for driver: %s", d.config.Driver)
+	}
+
+	return dsn, nil
+}
+
+// removeDSNParam removes a parameter from PostgreSQL DSN connection string
+func removeDSNParam(dsn, param string) string {
+	parts := strings.Split(dsn, " ")
+	var filtered []string
+	for _, part := range parts {
+		if !strings.HasPrefix(part, param+"=") {
+			filtered = append(filtered, part)
+		}
+	}
+	return strings.Join(filtered, " ")
 }
 
 func (d *DatabaseSource) Configure(_ context.Context, yamlConfig []byte, logger *log.Entry, metricsLevel metrics.AcquisitionMetricsLevel) error {
@@ -117,8 +255,18 @@ func (d *DatabaseSource) Configure(_ context.Context, yamlConfig []byte, logger 
 
 	d.logger.Tracef("Actual database acquisition configuration %+v", d.config)
 
+	// Handle TLS configuration if provided
+	dsn := d.config.DSN
+	if d.config.TLS != nil {
+		var tlsErr error
+		dsn, tlsErr = d.configureTLS(dsn)
+		if tlsErr != nil {
+			return fmt.Errorf("failed to configure TLS: %w", tlsErr)
+		}
+	}
+
 	// Open database connection
-	d.db, err = sql.Open(d.config.Driver, d.config.DSN)
+	d.db, err = sql.Open(d.config.Driver, dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -176,7 +324,7 @@ func (d *DatabaseSource) ConfigureByDSN(_ context.Context, dsn string, labels ma
 
 	// Parse query parameters
 	params := u.Query()
-	
+
 	if q := params.Get("query"); q != "" {
 		d.config.Query = q
 	} else {
@@ -219,7 +367,7 @@ func (d *DatabaseSource) ConfigureByDSN(_ context.Context, dsn string, labels ma
 	params.Del("timestamp_column")
 	params.Del("max_rows")
 	params.Del("poll_interval")
-	
+
 	// Rebuild DSN for the database driver
 	dbDSN := fmt.Sprintf("%s:%s@%s", u.User.Username(), "", u.Host)
 	if u.Path != "" {
@@ -281,7 +429,7 @@ func (d *DatabaseSource) Dump() any {
 // buildQuery replaces the timestamp placeholder with the actual timestamp value
 func (d *DatabaseSource) buildQuery() string {
 	query := d.config.Query
-	
+
 	if d.config.TimestampColumn != "" && strings.Contains(query, timestampPlaceholder) {
 		// Format timestamp for SQL (ISO 8601)
 		timestampStr := d.lastTimestamp.Format("2006-01-02 15:04:05.999999")
@@ -317,7 +465,7 @@ func (d *DatabaseSource) processRows(rows *sql.Rows, out chan pipeline.Event, t 
 	// Find log column index
 	logColIndex := -1
 	timestampColIndex := -1
-	
+
 	for i, col := range columns {
 		if col == d.config.LogColumn {
 			logColIndex = i
@@ -427,9 +575,9 @@ func (d *DatabaseSource) processRows(rows *sql.Rows, out chan pipeline.Event, t 
 
 		if d.metricsLevel != metrics.AcquisitionMetricsLevelNone {
 			metrics.DatabaseDatasourceLinesRead.With(prometheus.Labels{
-				"source":         d.config.Driver,
+				"source":          d.config.Driver,
 				"datasource_type": "database",
-				"acquis_type":    l.Labels["type"],
+				"acquis_type":     l.Labels["type"],
 			}).Inc()
 		}
 
@@ -508,4 +656,3 @@ func (d *DatabaseSource) queryAndProcess(ctx context.Context, out chan pipeline.
 
 	return d.processRows(rows, out, t)
 }
-

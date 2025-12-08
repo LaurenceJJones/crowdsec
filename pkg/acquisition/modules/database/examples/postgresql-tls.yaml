@@ -41,3 +41,4 @@ labels:
   type: postgresql-secure-logs
   environment: production
 
+

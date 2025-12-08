@@ -18,11 +18,11 @@ import (
 
 func setupTestDB(t *testing.T) (*sql.DB, string) {
 	t.Helper()
-	
+
 	// Create a temporary directory for the SQLite database
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
@@ -47,7 +47,7 @@ func setupTestDB(t *testing.T) (*sql.DB, string) {
 
 func insertTestLogs(t *testing.T, db *sql.DB, count int) {
 	t.Helper()
-	
+
 	for i := 0; i < count; i++ {
 		_, err := db.Exec(
 			"INSERT INTO logs (message, timestamp, level, source) VALUES (?, ?, ?, ?)",
@@ -64,9 +64,9 @@ func insertTestLogs(t *testing.T, db *sql.DB, count int) {
 
 func TestConfigure(t *testing.T) {
 	tests := []struct {
-		name      string
-		config    string
-		wantErr   bool
+		name    string
+		config  string
+		wantErr bool
 	}{
 		{
 			name: "valid_config",
@@ -130,13 +130,13 @@ timestamp_column: timestamp
 			d := &DatabaseSource{}
 			logger := log.NewEntry(log.New())
 			logger.Logger.SetOutput(os.Stderr)
-			
+
 			err := d.Configure(context.Background(), []byte(tt.config), logger, metrics.AcquisitionMetricsLevelFull)
-			
+
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Configure() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			
+
 			if d.db != nil {
 				d.db.Close()
 			}
@@ -301,7 +301,7 @@ func TestBuildQuery(t *testing.T) {
 			}
 
 			result := d.buildQuery()
-			
+
 			if tt.wantContains != "" && result != tt.wantContains && !contains(result, tt.wantContains) {
 				t.Errorf("buildQuery() = %v, want to contain %v", result, tt.wantContains)
 			}
@@ -332,7 +332,7 @@ func TestGetName(t *testing.T) {
 func TestSupportedModes(t *testing.T) {
 	d := &DatabaseSource{}
 	modes := d.SupportedModes()
-	
+
 	want := []string{"tail", "cat"}
 	if len(modes) != len(want) {
 		t.Errorf("SupportedModes() returned %d modes, want %d", len(modes), len(want))
@@ -401,4 +401,3 @@ labels:
 		t.Errorf("Expected source label to be 'test', got '%s'", evt.Line.Labels["source"])
 	}
 }
-

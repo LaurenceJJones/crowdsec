@@ -41,3 +41,4 @@ labels:
   type: mysql-secure-logs
   environment: production
 
+

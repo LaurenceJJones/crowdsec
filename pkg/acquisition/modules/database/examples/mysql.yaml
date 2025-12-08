@@ -1,0 +1,33 @@
+# MySQL Database Acquisition Configuration
+# This example shows how to read logs from a MySQL database
+
+source: database
+driver: mysql
+dsn: "user:password@tcp(localhost:3306)/logs?parseTime=true"
+
+# SQL query to execute
+# Use {{.timestamp}} placeholder to inject the last processed timestamp
+query: "SELECT message, timestamp, level, source FROM system_logs WHERE timestamp > '{{.timestamp}}' ORDER BY timestamp ASC"
+
+# Column containing the log message
+log_column: message
+
+# Column containing the timestamp (used for incremental reads)
+timestamp_column: timestamp
+
+# How often to poll for new data (in tail mode)
+poll_interval: 5s
+
+# Additional columns to add as labels to each event
+additional_columns:
+  - level
+  - source
+
+# Mode: tail (continuous polling) or cat (one-shot)
+mode: tail
+
+# Labels to apply to all events
+labels:
+  type: mysql-logs
+  service: my-application
+

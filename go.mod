@@ -100,6 +100,8 @@ require (
 	modernc.org/sqlite v1.39.0
 )
 
+require github.com/lib/pq v1.10.2
+
 require (
 	ariga.io/atlas v0.31.1-0.20250212144724-069be8033e83 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect

@@ -1,0 +1,43 @@
+# MySQL Database Acquisition with TLS Configuration
+# This example shows how to securely connect to MySQL using TLS
+
+source: database
+driver: mysql
+dsn: "user:password@tcp(db.example.com:3306)/logs?parseTime=true"
+
+# TLS configuration for secure connection
+tls:
+  # Skip certificate verification (not recommended for production)
+  insecure_skip_verify: false
+  
+  # Client certificate for mutual TLS authentication
+  client_cert: /etc/crowdsec/certs/mysql-client.crt
+  client_key: /etc/crowdsec/certs/mysql-client.key
+  
+  # CA certificate to verify server certificate
+  ca_cert: /etc/crowdsec/certs/mysql-ca.crt
+
+# SQL query to execute
+query: "SELECT message, timestamp, level FROM system_logs WHERE timestamp > '{{.timestamp}}' ORDER BY timestamp ASC"
+
+# Column containing the log message
+log_column: message
+
+# Column containing the timestamp (used for incremental reads)
+timestamp_column: timestamp
+
+# How often to poll for new data (in tail mode)
+poll_interval: 5s
+
+# Additional columns to add as labels to each event
+additional_columns:
+  - level
+
+# Mode: tail (continuous polling) or cat (one-shot)
+mode: tail
+
+# Labels to apply to all events
+labels:
+  type: mysql-secure-logs
+  environment: production
+

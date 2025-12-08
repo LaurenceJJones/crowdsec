@@ -1,0 +1,11 @@
+# Minimal Database Acquisition Configuration
+# This is the absolute minimum required configuration
+
+source: database
+driver: postgres
+dsn: "host=localhost port=5432 user=crowdsec password=pass dbname=logs sslmode=disable"
+query: "SELECT message FROM logs"
+log_column: message
+labels:
+  type: database-logs
+

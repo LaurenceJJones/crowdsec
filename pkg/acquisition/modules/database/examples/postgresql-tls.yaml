@@ -1,0 +1,43 @@
+# PostgreSQL Database Acquisition with TLS Configuration
+# This example shows how to securely connect to PostgreSQL using TLS
+
+source: database
+driver: postgres
+dsn: "host=db.example.com port=5432 user=crowdsec password=yourpassword dbname=logs"
+
+# TLS configuration for secure connection
+tls:
+  # Skip certificate verification (not recommended for production)
+  insecure_skip_verify: false
+  
+  # Client certificate for mutual TLS authentication
+  client_cert: /etc/crowdsec/certs/client.crt
+  client_key: /etc/crowdsec/certs/client.key
+  
+  # CA certificate to verify server certificate
+  ca_cert: /etc/crowdsec/certs/ca.crt
+
+# SQL query to execute
+query: "SELECT log_message, created_at, severity FROM application_logs WHERE created_at > '{{.timestamp}}' ORDER BY created_at ASC"
+
+# Column containing the log message
+log_column: log_message
+
+# Column containing the timestamp (used for incremental reads)
+timestamp_column: created_at
+
+# How often to poll for new data (in tail mode)
+poll_interval: 10s
+
+# Additional columns to add as labels to each event
+additional_columns:
+  - severity
+
+# Mode: tail (continuous polling) or cat (one-shot)
+mode: tail
+
+# Labels to apply to all events
+labels:
+  type: postgresql-secure-logs
+  environment: production
+

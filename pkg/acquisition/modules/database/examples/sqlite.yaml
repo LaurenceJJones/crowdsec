@@ -1,0 +1,20 @@
+# SQLite Database Acquisition Configuration
+# This example shows how to read logs from a SQLite database
+
+source: database
+driver: sqlite3
+dsn: "/var/log/application.db"
+
+# SQL query to execute (no timestamp filtering for one-shot)
+query: "SELECT log_text, timestamp FROM logs ORDER BY timestamp"
+
+# Column containing the log message
+log_column: log_text
+
+# Mode: cat (one-shot, read all logs once)
+mode: cat
+
+# Labels to apply to all events
+labels:
+  type: sqlite-logs
+

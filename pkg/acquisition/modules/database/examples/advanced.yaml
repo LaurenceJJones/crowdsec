@@ -1,0 +1,54 @@
+# Advanced Database Acquisition Configuration
+# This example shows advanced usage with complex queries
+
+source: database
+driver: postgres
+dsn: "host=db.example.com port=5432 user=crowdsec password=secure123 dbname=audit_logs sslmode=require"
+
+# Complex SQL query with joins and filtering
+# Note: The query must include the {{.timestamp}} placeholder when using timestamp_column
+query: |
+  SELECT 
+    l.log_entry,
+    l.created_at,
+    l.severity,
+    a.app_name,
+    h.hostname
+  FROM logs l
+  JOIN applications a ON l.app_id = a.id
+  JOIN hosts h ON l.host_id = h.id
+  WHERE l.created_at > '{{.timestamp}}'
+    AND l.severity IN ('warning', 'error', 'critical')
+  ORDER BY l.created_at ASC
+  LIMIT 500
+
+# Column containing the log message
+log_column: log_entry
+
+# Column containing the timestamp (used for incremental reads)
+timestamp_column: created_at
+
+# Poll every 30 seconds
+poll_interval: 30s
+
+# Limit to 500 rows per query
+max_rows: 500
+
+# Additional columns to add as labels
+# These will be available in CrowdSec scenarios and parsers
+additional_columns:
+  - severity
+  - app_name
+  - hostname
+
+# Mode: tail (continuous polling)
+mode: tail
+
+# Labels to apply to all events
+labels:
+  type: audit-logs
+  environment: production
+
+# Optional: Set log level for this datasource
+log_level: info
+

@@ -1,0 +1,19 @@
+# Simple Incremental Reading Configuration
+# This shows the minimal config for continuous log monitoring
+
+source: database
+driver: postgres
+dsn: "host=localhost port=5432 user=crowdsec password=pass dbname=logs sslmode=disable"
+
+# Query with timestamp placeholder - only fetch new logs
+query: "SELECT message, created_at FROM logs WHERE created_at > '{{.timestamp}}' ORDER BY created_at"
+
+# Which column contains the log message
+log_column: message
+
+# Which column to track for incremental reads (must be in query results)
+timestamp_column: created_at
+
+labels:
+  type: database-logs
+

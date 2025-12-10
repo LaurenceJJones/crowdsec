@@ -4,7 +4,9 @@ package csplugin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"testing"
@@ -158,7 +160,7 @@ func (s *PluginSuite) TestBrokerNoThreshold() {
 	go pb.Run(&tomb)
 
 	// send one item, it should be processed right now
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -175,7 +177,7 @@ func (s *PluginSuite) TestBrokerNoThreshold() {
 
 	// and another one
 	log.Info("second send")
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -210,9 +212,9 @@ func (s *PluginSuite) TestBrokerRunGroupAndTimeThreshold_TimeFirst() {
 	go pb.Run(&tomb)
 
 	// send data
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(500 * time.Millisecond)
 	// because of group threshold, we shouldn't have data yet
@@ -247,15 +249,15 @@ func (s *PluginSuite) TestBrokerRunGroupAndTimeThreshold_CountFirst() {
 	go pb.Run(&tomb)
 
 	// send data
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(100 * time.Millisecond)
 
 	// because of group threshold, we shouldn't have data yet
 	assert.NoFileExists(t, s.outFile)
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -288,17 +290,17 @@ func (s *PluginSuite) TestBrokerRunGroupThreshold() {
 	go pb.Run(&tomb)
 
 	// send data
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(time.Second)
 
 	// because of group threshold, we shouldn't have data yet
 	assert.NoFileExists(t, s.outFile)
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(time.Second)
 
@@ -342,7 +344,7 @@ func (s *PluginSuite) TestBrokerRunTimeThreshold() {
 	go pb.Run(&tomb)
 
 	// send data
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -376,8 +378,8 @@ func (s *PluginSuite) TestBrokerRunSimple() {
 
 	defer os.Remove(s.outFile)
 
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 	// make it wait a bit, CI can be slow
 	time.Sleep(time.Second)
 
@@ -400,4 +402,90 @@ func (s *PluginSuite) TestBrokerRunSimple() {
 
 	err = decoder.Decode(&alerts)
 	assert.Equal(t, err, io.EOF)
+}
+
+func (s *PluginSuite) TestBrokerContextCancellation() {
+	ctx := s.T().Context()
+	DefaultEmptyTicker = 50 * time.Millisecond
+
+	t := s.T()
+
+	// Clean up any existing output file
+	os.Remove(s.outFile)
+
+	pb, err := s.InitBroker(ctx, nil)
+	require.NoError(t, err)
+
+	tomb := tomb.Tomb{}
+	go pb.Run(&tomb)
+
+	// Create a context and cancel it immediately
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Verify the context is actually canceled
+	select {
+	case <-canceledCtx.Done():
+		// Context is canceled, good
+	default:
+		t.Fatal("context should be canceled")
+	}
+
+	// Send alerts with canceled context - these should be filtered out before delivery
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: canceledCtx}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: canceledCtx}
+
+	// Wait long enough for the watcher to trigger (DefaultEmptyTicker is 50ms, wait 500ms to be safe)
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify that no notifications were sent due to canceled context
+	// Alerts with canceled contexts are filtered out before chunking/delivery
+	assert.NoFileExists(t, s.outFile, "no notifications should be sent when context is canceled")
+
+	// Now send alerts with a valid context to verify normal operation still works
+	validCtx := context.Background()
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: validCtx}
+
+	// Wait for processing
+	time.Sleep(500 * time.Millisecond)
+
+	// Now we should have one alert from the valid context
+	content, err := os.ReadFile(s.outFile)
+	require.NoError(t, err, "Error reading file")
+
+	var alerts []models.Alert
+	err = json.Unmarshal(content, &alerts)
+	require.NoError(t, err)
+	// Only the alert with valid context should have been sent
+	assert.Len(t, alerts, 1, "only the alert with valid context should have been sent")
+
+	// Test mixed batch: some canceled, some valid - only valid ones should be delivered
+	os.Remove(s.outFile)
+	canceledCtx2, cancel2 := context.WithCancel(context.Background())
+	cancel2()
+
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: canceledCtx2}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: canceledCtx2}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Should have 2 alerts (the ones with valid contexts)
+	content, err = os.ReadFile(s.outFile)
+	require.NoError(t, err, "Error reading file")
+
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	alerts = nil // Reset for counting
+	alertCount := 0
+	for {
+		var alertBatch []models.Alert
+		err = decoder.Decode(&alertBatch)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+		alertCount += len(alertBatch)
+	}
+	assert.Equal(t, 2, alertCount, "only alerts with valid contexts should be delivered")
 }

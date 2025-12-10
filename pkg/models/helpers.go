@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
@@ -168,4 +169,5 @@ func (a *Alert) FormatAsStrings(machineID string, logger *log.Logger) []string {
 type ProfileAlert struct {
 	ProfileID uint
 	Alert     *Alert
+	Ctx       context.Context //nolint:containedctx // Context is passed through channel for cancellation propagation
 }

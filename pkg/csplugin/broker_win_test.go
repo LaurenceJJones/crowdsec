@@ -4,6 +4,7 @@ package csplugin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -79,8 +80,8 @@ func (s *PluginSuite) TestBrokerRun() {
 	assert.NoFileExists(t, s.outFile)
 	defer os.Remove(s.outFile)
 
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
-	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
+	pb.PluginChannel <- models.ProfileAlert{ProfileID: uint(0), Alert: &models.Alert{}, Ctx: context.Background()}
 	time.Sleep(time.Second * 4)
 
 	assert.FileExists(t, s.outFile)

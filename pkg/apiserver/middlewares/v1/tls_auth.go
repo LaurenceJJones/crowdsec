@@ -37,7 +37,7 @@ func (ta *TLSAuth) isExpired(cert *x509.Certificate) bool {
 }
 
 // checkRevocationPath checks a single chain against OCSP and CRL
-func (ta *TLSAuth) checkRevocationPath(ctx context.Context, chain []*x509.Certificate) (error, bool) { //nolint:revive
+func (ta *TLSAuth) checkRevocationPath(ctx context.Context, chain []*x509.Certificate) (error, bool) { //nolint:revive // error-return: error should be last, but bool indicates if check was possible
 	// if we ever fail to check OCSP or CRL, we should not cache the result
 	couldCheck := true
 

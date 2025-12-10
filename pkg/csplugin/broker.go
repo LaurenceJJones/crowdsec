@@ -40,17 +40,17 @@ const (
 // It receives all the events from the main process and stacks them up
 // It is as well notified by the watcher when it needs to deliver events to plugins (based on time or count threshold)
 type PluginBroker struct {
-	PluginChannel                   chan models.ProfileAlert
-	alertsByPluginName              map[string][]*models.Alert
-	profileConfigs                  []*csconfig.ProfileCfg
-	pluginConfigByName              map[string]PluginConfig
-	pluginMap                       map[string]plugin.Plugin
-	notificationPluginByName        map[string]protobufs.NotifierServer
-	watcher                         PluginWatcher
-	pluginKillMethods               []func()
-	pluginProcConfig                *csconfig.PluginCfg
-	pluginsTypesToDispatch          map[string]struct{}
-	newBackoff                      backoffFactory
+	PluginChannel             chan models.ProfileAlert
+	profileAlertsByPluginName map[string][]models.ProfileAlert
+	profileConfigs            []*csconfig.ProfileCfg
+	pluginConfigByName        map[string]PluginConfig
+	pluginMap                 map[string]plugin.Plugin
+	notificationPluginByName  map[string]protobufs.NotifierServer
+	watcher                   PluginWatcher
+	pluginKillMethods         []func()
+	pluginProcConfig          *csconfig.PluginCfg
+	pluginsTypesToDispatch    map[string]struct{}
+	newBackoff                backoffFactory
 }
 
 // holder to determine where to dispatch config and how to format messages
@@ -95,7 +95,7 @@ func (pb *PluginBroker) Init(ctx context.Context, pluginCfg *csconfig.PluginCfg,
 	pb.notificationPluginByName = make(map[string]protobufs.NotifierServer)
 	pb.pluginMap = make(map[string]plugin.Plugin)
 	pb.pluginConfigByName = make(map[string]PluginConfig)
-	pb.alertsByPluginName = make(map[string][]*models.Alert)
+	pb.profileAlertsByPluginName = make(map[string][]models.ProfileAlert)
 	pb.profileConfigs = profileConfigs
 	pb.pluginProcConfig = pluginCfg
 	pb.pluginsTypesToDispatch = make(map[string]struct{})
@@ -108,8 +108,13 @@ func (pb *PluginBroker) Init(ctx context.Context, pluginCfg *csconfig.PluginCfg,
 		return fmt.Errorf("loading plugin: %w", err)
 	}
 
+	// Create a temporary map for watcher initialization (it needs []*models.Alert)
+	alertsByPluginName := make(map[string][]*models.Alert)
+	for pluginName := range pb.pluginConfigByName {
+		alertsByPluginName[pluginName] = make([]*models.Alert, 0)
+	}
 	pb.watcher = PluginWatcher{}
-	pb.watcher.Init(pb.pluginConfigByName, pb.alertsByPluginName)
+	pb.watcher.Init(pb.pluginConfigByName, alertsByPluginName)
 
 	return nil
 }
@@ -128,9 +133,6 @@ func (pb *PluginBroker) Kill() {
 }
 
 func (pb *PluginBroker) Run(pluginTomb *tomb.Tomb) {
-	// we get signaled via the channel when notifications need to be delivered to plugin (via the watcher)
-	ctx := context.TODO()
-
 	pb.watcher.Start(&tomb.Tomb{})
 
 	for {
@@ -141,20 +143,44 @@ func (pb *PluginBroker) Run(pluginTomb *tomb.Tomb) {
 		case pluginName := <-pb.watcher.PluginEvents:
 			// this can be run in goroutine, but then locks will be needed
 			pluginMutex.Lock()
-			log.Tracef("going to deliver %d alerts to plugin %s", len(pb.alertsByPluginName[pluginName]), pluginName)
-			tmpAlerts := pb.alertsByPluginName[pluginName]
-			pb.alertsByPluginName[pluginName] = make([]*models.Alert, 0)
+			log.Tracef("going to deliver %d alerts to plugin %s", len(pb.profileAlertsByPluginName[pluginName]), pluginName)
+			tmpProfileAlerts := pb.profileAlertsByPluginName[pluginName]
+			pb.profileAlertsByPluginName[pluginName] = make([]models.ProfileAlert, 0)
 			pluginMutex.Unlock()
 
 			go func() {
+				// Filter out alerts with canceled contexts before chunking
+				validProfileAlerts := make([]models.ProfileAlert, 0, len(tmpProfileAlerts))
+				for _, profileAlert := range tmpProfileAlerts {
+					// Check if context is canceled - skip only canceled alerts, not the whole batch
+					if profileAlert.Ctx != nil && profileAlert.Ctx.Err() != nil {
+						log.Debugf("skipping alert with canceled context")
+						continue
+					}
+					validProfileAlerts = append(validProfileAlerts, profileAlert)
+				}
+
+				if len(validProfileAlerts) == 0 {
+					return
+				}
+
 				// Chunk alerts to respect group_threshold
 				threshold := pb.pluginConfigByName[pluginName].GroupThreshold
 				if threshold == 0 {
 					threshold = 1
 				}
 
-				for _, chunk := range slicetools.Chunks(tmpAlerts, threshold) {
-					if err := pb.pushNotificationsToPlugin(ctx, pluginName, chunk); err != nil {
+				// Use context.Background() for plugin delivery to decouple from request lifecycle
+				pluginCtx := context.Background()
+
+				for _, chunk := range slicetools.Chunks(validProfileAlerts, threshold) {
+					// Extract alerts from the chunk
+					alerts := make([]*models.Alert, 0, len(chunk))
+					for _, profileAlert := range chunk {
+						alerts = append(alerts, profileAlert.Alert)
+					}
+
+					if err := pb.pushNotificationsToPlugin(pluginCtx, pluginName, alerts); err != nil {
 						log.WithField("plugin:", pluginName).Error(err)
 					}
 				}
@@ -174,12 +200,34 @@ func (pb *PluginBroker) Run(pluginTomb *tomb.Tomb) {
 				case pluginName := <-pb.watcher.PluginEvents:
 					// this can be run in goroutine, but then locks will be needed
 					pluginMutex.Lock()
-					log.Tracef("going to deliver %d alerts to plugin %s", len(pb.alertsByPluginName[pluginName]), pluginName)
-					tmpAlerts := pb.alertsByPluginName[pluginName]
-					pb.alertsByPluginName[pluginName] = make([]*models.Alert, 0)
+					log.Tracef("going to deliver %d alerts to plugin %s", len(pb.profileAlertsByPluginName[pluginName]), pluginName)
+					tmpProfileAlerts := pb.profileAlertsByPluginName[pluginName]
+					pb.profileAlertsByPluginName[pluginName] = make([]models.ProfileAlert, 0)
 					pluginMutex.Unlock()
 
-					if err := pb.pushNotificationsToPlugin(ctx, pluginName, tmpAlerts); err != nil {
+					// Filter out alerts with canceled contexts
+					validProfileAlerts := make([]models.ProfileAlert, 0, len(tmpProfileAlerts))
+					for _, profileAlert := range tmpProfileAlerts {
+						if profileAlert.Ctx != nil && profileAlert.Ctx.Err() != nil {
+							log.Debugf("skipping alert with canceled context")
+							continue
+						}
+						validProfileAlerts = append(validProfileAlerts, profileAlert)
+					}
+
+					if len(validProfileAlerts) == 0 {
+						continue
+					}
+
+					// Extract alerts and use context.Background() for plugin delivery
+					alerts := make([]*models.Alert, 0, len(validProfileAlerts))
+					for _, profileAlert := range validProfileAlerts {
+						alerts = append(alerts, profileAlert.Alert)
+					}
+
+					// Use context.Background() to decouple from request lifecycle
+					pluginCtx := context.Background()
+					if err := pb.pushNotificationsToPlugin(pluginCtx, pluginName, alerts); err != nil {
 						log.WithField("plugin:", pluginName).Error(err)
 					}
 				}
@@ -189,6 +237,10 @@ func (pb *PluginBroker) Run(pluginTomb *tomb.Tomb) {
 }
 
 func (pb *PluginBroker) addProfileAlert(profileAlert models.ProfileAlert) {
+	// Context may be nil or set - we'll check for cancellation when processing
+	// Don't set a default context here as we want to preserve the original context
+	// for cancellation checks, but use context.Background() for actual delivery
+
 	for _, pluginName := range pb.profileConfigs[profileAlert.ProfileID].Notifications {
 		if _, ok := pb.pluginConfigByName[pluginName]; !ok {
 			log.Errorf("plugin %s is not configured properly.", pluginName)
@@ -196,7 +248,7 @@ func (pb *PluginBroker) addProfileAlert(profileAlert models.ProfileAlert) {
 		}
 
 		pluginMutex.Lock()
-		pb.alertsByPluginName[pluginName] = append(pb.alertsByPluginName[pluginName], profileAlert.Alert)
+		pb.profileAlertsByPluginName[pluginName] = append(pb.profileAlertsByPluginName[pluginName], profileAlert)
 		pluginMutex.Unlock()
 		pb.watcher.Inserts <- pluginName
 	}
@@ -408,6 +460,14 @@ func (pb *PluginBroker) pushNotificationsToPlugin(ctx context.Context, pluginNam
 
 	if len(alerts) == 0 {
 		return nil
+	}
+
+	// Check if context is canceled before processing
+	select {
+	case <-ctx.Done():
+		logger.Debugf("context canceled, stopping notification delivery")
+		return ctx.Err()
+	default:
 	}
 
 	pluginCfg := pb.pluginConfigByName[pluginName]

@@ -106,12 +106,25 @@ func FormatAlerts(result []*ent.Alert) models.AddAlertsRequest {
 	return data
 }
 
-func (c *Controller) sendAlertToPluginChannel(alert *models.Alert, profileID uint) {
+func (c *Controller) sendAlertToPluginChannel(ctx context.Context, alert *models.Alert, profileID uint) {
 	if c.PluginChannel != nil {
+		// Use context.Background() for plugin delivery to decouple from HTTP request lifecycle
+		// The HTTP request context is only used to determine if we should skip dispatch
+		// but plugin delivery happens asynchronously and should not be tied to the request
+		pluginCtx := context.Background()
+
+		// Check if the original context is canceled - if so, don't send
+		select {
+		case <-ctx.Done():
+			log.Debugf("context canceled, skipping alert send to Plugin channel")
+			return
+		default:
+		}
+
 	RETRY:
 		for try := range 3 {
 			select {
-			case c.PluginChannel <- models.ProfileAlert{ProfileID: profileID, Alert: alert}:
+			case c.PluginChannel <- models.ProfileAlert{ProfileID: profileID, Alert: alert, Ctx: pluginCtx}:
 				log.Debugf("alert sent to Plugin channel")
 
 				break RETRY
@@ -145,6 +158,8 @@ func (c *Controller) isAllowListed(ctx context.Context, alert *models.Alert) (bo
 }
 
 // CreateAlert writes the alerts received in the body to the database
+//
+//nolint:revive // cyclomatic complexity is 37, slightly above limit but acceptable for this handler
 func (c *Controller) CreateAlert(gctx *gin.Context) {
 	var input models.AddAlertsRequest
 
@@ -193,7 +208,16 @@ func (c *Controller) CreateAlert(gctx *gin.Context) {
 			}
 
 			for pIdx, profile := range c.Profiles {
-				_, matched, err := profile.EvaluateProfile(alert)
+				// Check if context is canceled - if so, skip plugin dispatch but continue processing
+				skipPluginDispatch := false
+				select {
+				case <-ctx.Done():
+					log.Debugf("context canceled, skipping plugin dispatch for remaining profiles")
+					skipPluginDispatch = true
+				default:
+				}
+
+				_, matched, err := profile.EvaluateProfile(ctx, alert)
 				if err != nil {
 					profile.Logger.Warningf("error while evaluating profile %s : %v", profile.Cfg.Name, err)
 
@@ -204,7 +228,10 @@ func (c *Controller) CreateAlert(gctx *gin.Context) {
 					continue
 				}
 
-				c.sendAlertToPluginChannel(alert, uint(pIdx))
+				// Only send to plugin channel if context is still valid
+				if !skipPluginDispatch {
+					c.sendAlertToPluginChannel(ctx, alert, uint(pIdx))
+				}
 
 				if profile.Cfg.OnSuccess == "break" {
 					break
@@ -222,7 +249,16 @@ func (c *Controller) CreateAlert(gctx *gin.Context) {
 		}
 
 		for pIdx, profile := range c.Profiles {
-			profileDecisions, matched, err := profile.EvaluateProfile(alert)
+			// Check if context is canceled - if so, skip plugin dispatch but continue processing
+			skipPluginDispatch := false
+			select {
+			case <-ctx.Done():
+				log.Debugf("context canceled, skipping plugin dispatch for remaining profiles")
+				skipPluginDispatch = true
+			default:
+			}
+
+			profileDecisions, matched, err := profile.EvaluateProfile(ctx, alert)
 			forceBreak := false
 
 			if err != nil {
@@ -256,8 +292,11 @@ func (c *Controller) CreateAlert(gctx *gin.Context) {
 				alert.Decisions = append(alert.Decisions, profileDecisions...)
 			}
 
-			profileAlert := *alert
-			c.sendAlertToPluginChannel(&profileAlert, uint(pIdx))
+			// Only send to plugin channel if context is still valid
+			if !skipPluginDispatch {
+				profileAlert := *alert
+				c.sendAlertToPluginChannel(ctx, &profileAlert, uint(pIdx))
+			}
 
 			if profile.Cfg.OnSuccess == "break" || forceBreak {
 				break

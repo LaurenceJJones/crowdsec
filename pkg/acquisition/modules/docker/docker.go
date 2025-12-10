@@ -13,14 +13,14 @@ import (
 	"time"
 
 	backoff "github.com/cenkalti/backoff/v5"
+	"github.com/containerd/errdefs"
+	yaml "github.com/goccy/go-yaml"
 	dockerContainer "github.com/moby/moby/api/types/container"
 	dockerTypesEvents "github.com/moby/moby/api/types/events"
 	dockerTypesSwarm "github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/client"
-	yaml "github.com/goccy/go-yaml"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"github.com/containerd/errdefs"
 	"gopkg.in/tomb.v2"
 
 	"github.com/crowdsecurity/dlog"
@@ -82,15 +82,15 @@ type ContainerConfig struct {
 type BackOffFactory func() backoff.BackOff
 
 func newDockerBackOffFactory() BackOffFactory {
-    return func() backoff.BackOff {
-        exp := backoff.NewExponentialBackOff()
-        exp.InitialInterval = 2 * time.Second
-        exp.Multiplier = 2.5
-        exp.MaxInterval = 2 * time.Minute
-        exp.RandomizationFactor = 0.5
+	return func() backoff.BackOff {
+		exp := backoff.NewExponentialBackOff()
+		exp.InitialInterval = 2 * time.Second
+		exp.Multiplier = 2.5
+		exp.MaxInterval = 2 * time.Minute
+		exp.RandomizationFactor = 0.5
 
-        return exp
-    }
+		return exp
+	}
 }
 
 func (d *DockerSource) GetUuid() string {
@@ -778,8 +778,8 @@ func (d *DockerSource) checkContainers(ctx context.Context, monitChan chan *Cont
 }
 
 type subscription struct {
-    events <-chan dockerTypesEvents.Message
-    errs   <-chan error
+	events <-chan dockerTypesEvents.Message
+	errs   <-chan error
 }
 
 func (d *DockerSource) trySubscribeEvents(ctx context.Context) (*subscription, error) {

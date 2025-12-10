@@ -1,6 +1,7 @@
 package csprofiles
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/expr-lang/expr"
@@ -164,12 +165,19 @@ func (profile *Runtime) GenerateDecisionFromProfile(alert *models.Alert) ([]*mod
 }
 
 // EvaluateProfile is going to evaluate an Alert against a profile to generate Decisions
-func (profile *Runtime) EvaluateProfile(alert *models.Alert) ([]*models.Decision, bool, error) {
+func (profile *Runtime) EvaluateProfile(ctx context.Context, alert *models.Alert) ([]*models.Decision, bool, error) {
 	var decisions []*models.Decision
 
 	matched := false
 
 	for eIdx, expression := range profile.RuntimeFilters {
+		// Check if context is canceled before processing each filter
+		select {
+		case <-ctx.Done():
+			return nil, matched, ctx.Err()
+		default:
+		}
+
 		debugProfile := false
 		if profile.Cfg.Debug != nil && *profile.Cfg.Debug {
 			debugProfile = true

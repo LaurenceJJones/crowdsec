@@ -354,6 +354,7 @@ func (cli *cliNotifications) newTestCmd() *cobra.Command {
 			pluginBroker.PluginChannel <- models.ProfileAlert{
 				ProfileID: uint(0),
 				Alert:     alert,
+				Ctx:       context.Background(),
 			}
 
 			// time.Sleep(2 * time.Second) // There's no mechanism to ensure notification has been sent
@@ -449,7 +450,7 @@ cscli notifications reinject <alert_id> -a '{"remediation": true,"scenario":"not
 			}
 
 			for id, profile := range profiles {
-				_, matched, err := profile.EvaluateProfile(alert)
+				_, matched, err := profile.EvaluateProfile(context.Background(), alert)
 				if err != nil {
 					return fmt.Errorf("can't evaluate profile %s: %w", profile.Cfg.Name, err)
 				}
@@ -464,6 +465,7 @@ cscli notifications reinject <alert_id> -a '{"remediation": true,"scenario":"not
 					case pluginBroker.PluginChannel <- models.ProfileAlert{
 						ProfileID: uint(id),
 						Alert:     alert,
+						Ctx:       context.Background(),
 					}:
 						break loop
 					default:
